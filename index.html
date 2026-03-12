@@ -1255,7 +1255,7 @@
 <script>
 // ===================== SUPABASE CONFIG =====================
 const SUPABASE_URL = 'https://honzwcbcssnfmjwgparq.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_cmGJ1BY8giys_tJLfFLVaw_-xwtnpdp';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhvbnp3Y2Jjc3NuZm1qd2dwYXJxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyNTQwMTIsImV4cCI6MjA4ODgzMDAxMn0.ulck27vrWAbSZb0vbhlKw3uNW742sg0EpUIIsaub8V0';
 
 // Direct REST API — avoids SDK DataCloneError with new key format
 const _h = () => ({
@@ -1538,10 +1538,30 @@ async function saveEditStudent() {
   s.status = getSelectedPill('es-status-group') || 'active';
   if (pendingEditPhotoData) s.photo = pendingEditPhotoData;
 
-  saveState();
+  // Build clean object with only known columns
+  const payload = {
+    id: s.id,
+    first: s.first,
+    last: s.last || '',
+    phone: s.phone || '',
+    parent: s.parent || '',
+    parentPhone: s.parentPhone || '',
+    parentEmail: s.parentEmail || '',
+    joined: s.joined || '',
+    birthday: s.birthday || '',
+    sessionRate: s.sessionRate || null,
+    lessonRate: s.lessonRate || null,
+    fixedRate: s.fixedRate || null,
+    status: s.status || 'active',
+    photo: s.photo || ''
+  };
+
+  const { error } = await dbUpsert('students', payload, 'id');
+  if (error) { showToast('Error saving: ' + (error.message || JSON.stringify(error))); return; }
+
   renderAllStudents();
   closeEditStudent();
-  showToast(`${first} ${last} updated!`);
+  showToast(`${first}${last ? ' ' + last : ''} updated!`);
 }
 
 function closeEditStudent() {

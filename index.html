@@ -2141,7 +2141,7 @@ function updateEditLessonCost(row) {
   }
 }
 
-function saveEditEntry() {
+async function saveEditEntry() {
   if (!editingDate || !editStudentId) return;
   if (!state.attendance[editingDate]) state.attendance[editingDate] = { morning: [], afternoon: [], lessons: [], payments: {} };
   const att = state.attendance[editingDate];
@@ -2181,7 +2181,14 @@ function saveEditEntry() {
     }
   }
 
-  saveState();
+  // Save directly to Supabase
+  const data = state.attendance[editingDate];
+  if (!data) {
+    await dbDelete('attendance', 'date', editingDate);
+  } else {
+    await dbUpsert('attendance', { date: editingDate, data }, 'date');
+  }
+
   renderCalendar();
   renderDaySummary();
   closeEditModal();
@@ -2203,7 +2210,7 @@ function confirmDeleteEntry() {
   closeEditModal();
 }
 
-function removeStudentEntry(studentId) {
+async function removeStudentEntry(studentId) {
   if (!state.attendance[editingDate]) return;
   const att = state.attendance[editingDate];
   att.morning = (att.morning||[]).filter(id => id !== studentId);
@@ -2211,7 +2218,11 @@ function removeStudentEntry(studentId) {
   att.lessons = (att.lessons||[]).filter(l => l.studentId !== studentId);
   if (att.payments) delete att.payments[studentId];
   if (!att.morning.length && !att.afternoon.length && !att.lessons.length) delete state.attendance[editingDate];
-  saveState();
+
+  const data = state.attendance[editingDate];
+  if (!data) { await dbDelete('attendance', 'date', editingDate); }
+  else { await dbUpsert('attendance', { date: editingDate, data }, 'date'); }
+
   renderCalendar();
   renderDaySummary();
 }
@@ -2749,6 +2760,36 @@ async function loadAllData() {
         if (cfg.prices) state.prices = cfg.prices;
         if (cfg.coaches) state.coaches = cfg.coaches;
       }
+
+      // Clean up attendance: remove IDs of deleted students, delete empty days
+      const validIds = new Set(state.students.map(s => s.id));
+      const dirtyDates = [];
+      Object.entries(state.attendance).forEach(([date, att]) => {
+        const beforeM = (att.morning||[]).length;
+        const beforeA = (att.afternoon||[]).length;
+        const beforeL = (att.lessons||[]).length;
+        att.morning = (att.morning||[]).filter(id => validIds.has(id));
+        att.afternoon = (att.afternoon||[]).filter(id => validIds.has(id));
+        att.lessons = (att.lessons||[]).filter(l => validIds.has(l.studentId));
+        if (att.payments) {
+          Object.keys(att.payments).forEach(id => { if (!validIds.has(id)) delete att.payments[id]; });
+        }
+        const changed = att.morning.length !== beforeM || att.afternoon.length !== beforeA || att.lessons.length !== beforeL;
+        if (changed) {
+          if (!att.morning.length && !att.afternoon.length && !att.lessons.length) {
+            delete state.attendance[date];
+            dirtyDates.push({ date, empty: true });
+          } else {
+            dirtyDates.push({ date, empty: false });
+          }
+        }
+      });
+      // Persist any cleaned-up days back to Supabase
+      for (const { date, empty } of dirtyDates) {
+        if (empty) { await dbDelete('attendance', 'date', date); }
+        else { await dbUpsert('attendance', { date, data: state.attendance[date] }, 'date'); }
+      }
+
       break; // success
     } catch(e) {
       attempts++;
